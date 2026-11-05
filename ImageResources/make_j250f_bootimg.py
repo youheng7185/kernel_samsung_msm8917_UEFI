@@ -2,7 +2,7 @@
 """
 make_j250f_bootimg.py
 Generates a Samsung Galaxy J2 Pro 2018 (SM-J250F / j2y18lte) compliant Android boot image
-containing ARM32 BootShim + EDK2 UEFI FD + Samsung QCDT device tree table.
+containing an ARM BootShim + EDK2 UEFI FD + Samsung QCDT device tree table.
 """
 
 import os, sys, struct, hashlib
