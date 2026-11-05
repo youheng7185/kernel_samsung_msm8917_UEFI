@@ -39,7 +39,7 @@
 !if $(TARGET) == DEBUG && $(USE_UART) == 0
   GCC:DEBUG_*_*_CC_FLAGS = -DJ250F_PERSISTENT_TEXT_LOG=1
 !endif
-  *_*_*_CC_FLAGS = -DDISPLAY_USES_RGBA=$(DISPLAY_USES_RGBA)
+  *_*_*_CC_FLAGS = -DDISPLAY_USES_RGBA=$(DISPLAY_USES_RGBA) -DJ250F_BOOT_TO_SHELL=1
   # ADB RAM applications are explicitly permitted in this development build.
   # RELEASE and image loads with a device path retain normal verification.
   DEBUG_*_*_CC_FLAGS = -DJ250F_ADB_RAM_EXECUTION=1
@@ -51,6 +51,7 @@
   KeypadDeviceImplLib|J250FPkg/Library/KeypadDeviceImplLib/KeypadDeviceImplLib.inf
 
 [PcdsFixedAtBuild.common]
+  gPcBdsPkgTokenSpaceGuid.PcdLowResolutionInternalShell|FALSE
   # Platform-specific memory definitions
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x80000000        # Starting DRAM address
   gArmTokenSpaceGuid.PcdSystemMemorySize|0x60000000        # 1.5 GB Total Physical RAM

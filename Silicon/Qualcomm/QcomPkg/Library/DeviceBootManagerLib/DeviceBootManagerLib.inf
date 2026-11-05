@@ -60,6 +60,7 @@
   UpdateFacsHardwareSignatureLib
 
 [Guids]
+  gEfiFileInfoGuid
   gEfiEndOfDxeEventGroupGuid
   gUefiShellFileGuid
   gMsStartOfBdsNotifyGuid
@@ -70,6 +71,7 @@
   gDfciSettingsManagerVarNamespace
 
 [Protocols]
+  gEfiSimpleFileSystemProtocolGuid    ## CONSUMES
   gMsOSKProtocolGuid                ## CONSUMES
   gMsSWMProtocolGuid                ## CONSUMES
   gTpmPpProtocolGuid                ## CONSUMES

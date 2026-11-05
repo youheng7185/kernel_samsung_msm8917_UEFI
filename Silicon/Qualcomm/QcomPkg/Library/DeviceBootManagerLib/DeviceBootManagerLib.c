@@ -11,11 +11,14 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <DfciSystemSettingTypes.h>
 
 #include <Guid/EventGroup.h>
+#include <Guid/FileInfo.h>
 #include <Guid/GlobalVariable.h>
 #include <Guid/MsBootMenuGuid.h>
 #include <Guid/DfciPacketHeader.h>
 
 #include <Protocol/GraphicsOutput.h>
+#include <Protocol/SimpleFileSystem.h>
+#include <J250fSdcc2Status.h>
 #include <Protocol/Security2.h>
 #include <Library/BaseCryptLib.h>
 #include <Protocol/OnScreenKeyboard.h>
@@ -61,6 +64,173 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 static EFI_EVENT  mPreReadyToBootEvent;
 static EFI_EVENT  mPostReadyToBootEvent;
+
+#if defined(J250F_BOOT_TO_SHELL)
+STATIC EFI_GUID mJ250fSdcc2PathGuid = {
+  0x27863253,0x2d92,0x489b,{0xab,0x78,0xd3,0x37,0x71,0x4d,0xcf,0x21}
+};
+
+STATIC BOOLEAN
+J250fIsSdcc2Volume (EFI_HANDLE Handle)
+{
+  EFI_DEVICE_PATH_PROTOCOL *Node = DevicePathFromHandle (Handle);
+  UINTN Limit = 64;
+  while (Node != NULL && Limit-- != 0 && !IsDevicePathEnd (Node)) {
+    if (DevicePathType (Node) == HARDWARE_DEVICE_PATH &&
+        DevicePathSubType (Node) == HW_VENDOR_DP &&
+        DevicePathNodeLength (Node) >= sizeof (VENDOR_DEVICE_PATH) &&
+        CompareGuid (&((VENDOR_DEVICE_PATH *)Node)->Guid,
+                     &mJ250fSdcc2PathGuid)) {
+      return TRUE;
+    }
+    Node = NextDevicePathNode (Node);
+  }
+  return FALSE;
+}
+
+STATIC BOOLEAN
+J250fDtbName (CONST CHAR16 *Name)
+{
+  UINTN Length = StrLen (Name);
+  if (Length == 3) {
+    return CharToUpper (Name[0]) == L'D' &&
+           CharToUpper (Name[1]) == L'T' &&
+           CharToUpper (Name[2]) == L'B';
+  }
+  return Length > 4 && Name[Length - 4] == L'.' &&
+         CharToUpper (Name[Length - 3]) == L'D' &&
+         CharToUpper (Name[Length - 2]) == L'T' &&
+         CharToUpper (Name[Length - 1]) == L'B';
+}
+
+STATIC VOID
+J250fDiscoverBootFiles (VOID)
+{
+  EFI_GUID                         StatusGuid = J250F_SDCC2_STATUS_GUID;
+  J250F_SDCC2_STATUS               SdStatus;
+  EFI_HANDLE                       *Handles = NULL;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
+  EFI_FILE_PROTOCOL                *Root;
+  EFI_FILE_PROTOCOL                *Image;
+  EFI_FILE_INFO                    *Info;
+  EFI_STATUS                       Status;
+  UINTN                            Count = 0;
+  UINTN                            Index;
+  UINTN                            Size;
+  UINTN                            Entries;
+  BOOLEAN                          FoundDtb;
+  UINTN                            Matches = 0;
+
+  Size = sizeof (SdStatus);
+  Status = gRT->GetVariable (L"J250fSdcc2Status", &StatusGuid,
+                  NULL, &Size, &SdStatus);
+  if (!EFI_ERROR (Status) && Size == sizeof (SdStatus)) {
+    Print (L"SDCC2 stage=0x%x status=%r\r\n", SdStatus.Stage,
+           (EFI_STATUS)SdStatus.Status);
+    Print (L"IRQ=%08x RSP=%08x PRESENT=%08x\r\n",
+           SdStatus.Interrupt, SdStatus.Response, SdStatus.Present);
+    Print (L"CLOCK=%04x PWR=%08x\r\n",
+           SdStatus.Clock, SdStatus.Power);
+    Print (L"IEN=%08x CMD=%04x\r\n",
+           SdStatus.InterruptEnable, SdStatus.Command);
+    Print (L"Recovered: CMD55=%u ACMD41=%u\r\n",
+           SdStatus.Cmd55Recovered, SdStatus.Acmd41Recovered);
+    Print (L"Retry: CMD2=%u CMD9=%u\r\n",
+           SdStatus.Cmd2Retries, SdStatus.Cmd9Retries);
+    Print (L"Recovered: CMD3=%u CMD9=%u\r\n",
+           SdStatus.Cmd3Recovered, SdStatus.Cmd9Recovered);
+    Print (L"RSP1=%08x RSP2=%08x RSP3=%08x\r\n",
+           SdStatus.Response1, SdStatus.Response2, SdStatus.Response3);
+  } else {
+    Print (L"SDCC2 driver has not reported status.\r\n");
+  }
+
+  // Equivalent to the shell's connect -r and map -r discovery pass.
+  EfiBootManagerConnectAll ();
+  Status = gBS->LocateHandleBuffer (ByProtocol,
+                  &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Handles);
+  if (EFI_ERROR (Status)) {
+    Print (L"No filesystem volumes found (%r).\r\n", Status);
+    return;
+  }
+
+  Info = AllocatePool (4096);
+  if (Info == NULL) {
+    FreePool (Handles);
+    return;
+  }
+  for (Index = 0; Index < Count; ++Index) {
+    Status = gBS->HandleProtocol (Handles[Index],
+                    &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+    if (EFI_ERROR (Status)) {
+      continue;
+    }
+    Status = Fs->OpenVolume (Fs, &Root);
+    if (EFI_ERROR (Status)) {
+      Print (L"Volume %u: open failed (%r)\r\n", (UINT32)Index, Status);
+      continue;
+    }
+    Print (L"Volume %u root%s (shell fs alias may differ):\r\n",
+           (UINT32)Index,
+           J250fIsSdcc2Volume (Handles[Index]) ? L" [SDCC2 card]" : L"");
+    Entries = 0;
+    for (;;) {
+      Size = 4096;
+      Status = Root->Read (Root, &Size, Info);
+      if (EFI_ERROR (Status) || Size == 0) break;
+      Print (L"  %s  %Lu bytes%s\r\n", Info->FileName, Info->FileSize,
+             (Info->Attribute & EFI_FILE_DIRECTORY) ? L" [dir]" : L"");
+      if (++Entries == 48) {
+        Print (L"  ... root listing limited to 48 entries\r\n");
+        break;
+      }
+    }
+    if (EFI_ERROR (Status)) {
+      Print (L"  directory read: %r\r\n", Status);
+    } else if (Entries == 0) {
+      Print (L"  (empty)\r\n");
+    }
+    Status = Root->SetPosition (Root, 0);
+    if (EFI_ERROR (Status)) {
+      Print (L"Volume %u: rewind failed (%r)\r\n", (UINT32)Index, Status);
+      Root->Close (Root);
+      continue;
+    }
+    Image = NULL;
+    Status = Root->Open (Root, &Image, L"Image", EFI_FILE_MODE_READ, 0);
+    if (EFI_ERROR (Status)) {
+      Root->Close (Root);
+      continue;
+    }
+    Image->Close (Image);
+    FoundDtb = FALSE;
+    for (;;) {
+      Size = 4096;
+      Status = Root->Read (Root, &Size, Info);
+      if (EFI_ERROR (Status) || Size == 0) {
+        break;
+      }
+      if (!(Info->Attribute & EFI_FILE_DIRECTORY) &&
+          J250fDtbName (Info->FileName)) {
+        Print (L"Volume %u: Image and %s found\r\n", (UINT32)Index,
+               Info->FileName);
+        FoundDtb = TRUE;
+        ++Matches;
+        break;
+      }
+    }
+    if (!FoundDtb) {
+      Print (L"Volume %u: Image found; no DTB at root\r\n", (UINT32)Index);
+    }
+    Root->Close (Root);
+  }
+  if (Matches == 0) {
+    Print (L"SDCC2: no volume with Image and DTB found.\r\n");
+  }
+  FreePool (Info);
+  FreePool (Handles);
+}
+#endif
 
 /* J250F one-partition WP81 BDS diagnostic state. No storage writes. */
 STATIC EFI_GUID mWpEspReadyGuid = {
@@ -961,12 +1131,16 @@ DeviceBootManagerAfterConsole (
 
   PlatformPowerLevelCheck ();
 
+#if !defined(J250F_BOOT_TO_SHELL)
   Status = DisplayBootGraphic (BG_SYSTEM_LOGO);
   if (EFI_ERROR (Status) != FALSE) {
     DEBUG ((DEBUG_ERROR, "%a Unabled to set graphics - %r\n", __FUNCTION__, Status));
   }
 
   ConsoleMsgLibDisplaySystemInfoOnConsole ();
+#else
+  J250fDiscoverBootFiles ();
+#endif
 
   BootMode = GetBootModeHob ();
 
@@ -1131,6 +1305,10 @@ DeviceBootManagerPriorityBoot (
   EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption
   )
 {
+#if defined(J250F_BOOT_TO_SHELL)
+  /* Launch the shell embedded in the firmware volume on every boot. */
+  return MsBootOptionsLibUEFIShell (BootOption, NULL);
+#else
   BOOLEAN     FrontPageBoot;
   BOOLEAN     UEFIShell;
   EFI_STATUS  Status;
@@ -1170,6 +1348,7 @@ DeviceBootManagerPriorityBoot (
   }
 
   return Status;
+#endif
 }
 
 /**
