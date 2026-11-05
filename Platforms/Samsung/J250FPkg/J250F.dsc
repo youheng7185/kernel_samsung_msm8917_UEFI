@@ -81,12 +81,10 @@
 
 [Components.common]
   J250fPkg/AdbDebug/Hello/J250fAdbHello.inf
-  J250fPkg/PlatformIntegration/J250fPowerDxe.inf
+  J250fPkg/PlatformIntegration/J250fSdcc2Dxe.inf
   J250fPkg/J250fGopDxe/J250fGopDxe.inf
   # Build only, not included in the phone firmware image.
   J250fPkg/J250fGopDxe/J250fGopTest.inf
-  J250fPkg/J250fEmmcDxe/J250fLkEmmcDxe.inf
-  J250fPkg/J250fExt4Dxe/J250fExt4Dxe.inf
   # Keypad Drivers
   QcomPkg/Drivers/KeypadDxe/KeypadDxe.inf
   QcomPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf

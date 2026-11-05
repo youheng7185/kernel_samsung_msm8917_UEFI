@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-2.0-only
+[Defines]
+  INF_VERSION = 0x00010017
+  BASE_NAME = J250fSdcc2Dxe
+  FILE_GUID = 9cf0e906-8dfd-4a27-9e3b-f75bf62e1637
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = J250fSdcc2Entry
+[Sources]
+  J250fSdcc2Dxe.c
+  RpmSmd.c
+  SmemMap.c
+[Packages]
+  MdePkg/MdePkg.dec
+  QcomPkg/QcomPkg.dec
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  IoLib
+  BaseLib
+  BaseMemoryLib
+  TimerLib
+  DebugLib
+  PrintLib
+  DxeServicesTableLib
+[Protocols]
+  gEfiCpuArchProtocolGuid
+  gEfiBlockIoProtocolGuid
+  gEfiDevicePathProtocolGuid
+[Depex]
+  gEfiCpuArchProtocolGuid
